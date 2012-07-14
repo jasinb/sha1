@@ -76,7 +76,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="main.c" />
     <ClCompile Include="sha1.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="sha1.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
