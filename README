@@ -1,0 +1,2 @@
+A simple implementation of the SHA-1 hashing algorithm as per RFC 3174, in
+C, mainly for learning purposes.
