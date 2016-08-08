@@ -106,3 +106,5 @@ UpgradeLog*.XML
 
 # NuGet
 packages/
+*.o
+sha1
