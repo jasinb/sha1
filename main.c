@@ -64,7 +64,7 @@ int runTests (void)
         SHA1_Digest computed = SHA1_get(test->src, strlen(test->src));
         SHA1_Digest expected = SHA1_Digest_fromStr(test->dst);
 
-        printf("Testing %d/%lu...", i+1, LENGTH_OF_ARRAY(tests));
+        printf("Testing %d/%zu...", i+1, LENGTH_OF_ARRAY(tests));
 
         if (memcmp(&computed, &expected, sizeof(SHA1_Digest)))
         {
