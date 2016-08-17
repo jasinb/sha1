@@ -114,9 +114,9 @@ static int padMsg (const void* msg, uint64_t bytes, uint8_t* lastBlock)
     return extraBlocks;
 }
 
-SHA1_Digest SHA1_get (const void* msg, uint64_t bytes)
+SHA1Digest SHA1_get (const void* msg, uint64_t bytes)
 {
-    SHA1_Digest digest;
+    SHA1Digest digest;
     uint32_t h[5] =
     {
         0x67452301,
@@ -145,19 +145,15 @@ SHA1_Digest SHA1_get (const void* msg, uint64_t bytes)
     for (b = 0; b < numLast; b++)
         processBlock((const uint32_t*)(lastBlocks + b*64), h);
 
-    *((uint32_t*)&digest.digest[0])  = get32(&h[0]);
-    *((uint32_t*)&digest.digest[4])  = get32(&h[1]);
-    *((uint32_t*)&digest.digest[8])  = get32(&h[2]);
-    *((uint32_t*)&digest.digest[12]) = get32(&h[3]);
-    *((uint32_t*)&digest.digest[16]) = get32(&h[4]);
+    for (b = 0; b < 5; b++)
+        digest.digest[b] = get32(&h[b]);
     return digest;
 }
 
 
-SHA1_Digest SHA1_Digest_fromStr (const char* src)
+SHA1Digest SHA1_strToDigest (const char* src)
 {
-    // \todo why does msvc require this initializer to not issue C4701 ?
-    SHA1_Digest d = { "" }; 
+    SHA1Digest d;
     int i;
     
     assert(src); // also, src must be at least 40 bytes
@@ -169,20 +165,20 @@ SHA1_Digest SHA1_Digest_fromStr (const char* src)
 
         c0 = '0' <= c0 && c0 <= '9' ? c0 - '0' : ('a' <= c0 && c0 <= 'f' ? 0xa + c0 - 'a' : -1);
         c1 = '0' <= c1 && c1 <= '9' ? c1 - '0' : ('a' <= c1 && c1 <= 'f' ? 0xa + c1 - 'a' : -1);
-        d.digest[i] = (uint8_t)((c0 << 4) | c1);
+        ((uint8_t*)d.digest)[i] = (uint8_t)((c0 << 4) | c1);
     }
 
     return d;
 }
 
-void SHA1_Digest_toStr (const SHA1_Digest* digest, char* dst)
+void SHA1_digestToStr (const SHA1Digest* digest, char* dst)
 {
     int i;
     assert(digest && dst); // dst must be at least 41 bytes (terminator)
     for (i = 0; i < 20; i++)
     {
-        int c0 = digest->digest[i] >> 4;
-        int c1 = digest->digest[i] & 0xf;
+        int c0 = ((uint8_t*)digest->digest)[i] >> 4;
+        int c1 = ((uint8_t*)digest->digest)[i] & 0xf;
 
         assert(0 <= c0 && c0 <= 0xf);
         assert(0 <= c1 && c1 <= 0xf);
