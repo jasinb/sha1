@@ -61,16 +61,16 @@ int runTests (void)
     for (i = 0, failCount = 0; i < LENGTH_OF_ARRAY(tests); i++)
     {
         const TestVec* test = &tests[i];
-        SHA1Digest computed = SHA1_get(test->src, strlen(test->src));
-        SHA1Digest expected = SHA1_strToDigest(test->dst);
+        Sha1Digest computed = Sha1_get(test->src, strlen(test->src));
+        Sha1Digest expected = Sha1Digest_fromStr(test->dst);
 
         printf("Testing %d/%zu...", i+1, LENGTH_OF_ARRAY(tests));
 
-        if (memcmp(&computed, &expected, sizeof(SHA1Digest)))
+        if (memcmp(&computed, &expected, sizeof(Sha1Digest)))
         {
             char cStr[41];  // two bytes per digit plus terminator
             printf("failed!\n");
-            SHA1_digestToStr(&computed, cStr);
+            Sha1Digest_toStr(&computed, cStr);
             printf("Expected %s, got %s\n", test->dst, cStr);
             failCount++;
         }

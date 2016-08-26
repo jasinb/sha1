@@ -1,8 +1,9 @@
 #include <assert.h>
 #include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
 #include "sha1.h"
 
-#define ALIGN(x,a) (((x)+(a)-1ULL)&~((a)-1ULL))
 
 static uint32_t rotl32(uint32_t x, int b)
 {
@@ -30,8 +31,39 @@ static uint32_t f (int t, uint32_t b, uint32_t c, uint32_t d)
         return b ^ c ^ d;
 }
 
+struct _Sha1Ctx
+{
+    uint8_t block[64];
+    uint32_t h[5];
+    uint64_t bytes;
+    uint32_t cur;
+};
 
-static void processBlock (const uint32_t* block, uint32_t* h)
+void Sha1Ctx_reset (Sha1Ctx* ctx)
+{
+    ctx->h[0] = 0x67452301;
+    ctx->h[1] = 0xefcdab89;
+    ctx->h[2] = 0x98badcfe;
+    ctx->h[3] = 0x10325476;
+    ctx->h[4] = 0xc3d2e1f0;
+    ctx->bytes = 0;
+    ctx->cur = 0;
+}
+
+Sha1Ctx* Sha1Ctx_create (void)
+{
+    // TODO custom allocator support
+    Sha1Ctx* ctx = (Sha1Ctx*)malloc(sizeof(Sha1Ctx));
+    Sha1Ctx_reset(ctx);
+    return ctx;
+}
+
+void Sha1Ctx_release (Sha1Ctx* ctx)
+{
+    free(ctx);
+}
+
+static void processBlock (Sha1Ctx* ctx)
 {
     static const uint32_t k[4] =
     {
@@ -41,20 +73,16 @@ static void processBlock (const uint32_t* block, uint32_t* h)
         0xCA62C1D6
     };
 
-    uint32_t w[80];
-    uint32_t a = h[0];
-    uint32_t b = h[1];
-    uint32_t c = h[2];
-    uint32_t d = h[3];
-    uint32_t e = h[4];
+    uint32_t w[16];
+    uint32_t a = ctx->h[0];
+    uint32_t b = ctx->h[1];
+    uint32_t c = ctx->h[2];
+    uint32_t d = ctx->h[3];
+    uint32_t e = ctx->h[4];
     int t;
 
     for (t = 0; t < 16; t++)
-        w[t] = get32(block++);
-/*
-    for (; t < 80; t++)
-        w[t] = rotl32(w[t-3] ^ w[t-8] ^ w[t-14] ^ w[t-16], 1);
-        */
+        w[t] = get32(&((uint32_t*)ctx->block)[t]);
 
     for (t = 0; t < 80; t++)
     {
@@ -66,98 +94,85 @@ static void processBlock (const uint32_t* block, uint32_t* h)
          temp = rotl32(a, 5) + f(t, b,c,d) + e + w[s] + k[t/20];
 
          e = d; d = c; c = rotl32(b, 30); b = a; a = temp;
-        /*
-        uint32_t temp = rotl32(a, 5) + f(t, b,c,d) + e + w[t] + k[t/20];
-        e = d;
-        d = c;
-        c = rotl32(b, 30);
-        b = a;
-        a = temp;
-        */
     }
 
-    h[0] += a;
-    h[1] += b;
-    h[2] += c;
-    h[3] += d;
-    h[4] += e;
+    ctx->h[0] += a;
+    ctx->h[1] += b;
+    ctx->h[2] += c;
+    ctx->h[3] += d;
+    ctx->h[4] += e;
 }
 
-static int padMsg (const void* msg, uint64_t bytes, uint8_t* lastBlock)
+void Sha1Ctx_write (Sha1Ctx* ctx, const void* msg, uint64_t bytes)
 {
-    int msgBytesInLast   = (int)(bytes & 63);
-    int extraBlocks      = (msgBytesInLast + 9) > 64 ? 2 : 1;
-    int numZeroBytes     = extraBlocks * 64 - 9 - msgBytesInLast;
+    ctx->bytes += bytes;
 
-    // fill remaining msg bytes
-    const uint8_t* msgLast = (uint8_t*)msg + (bytes & ~63);
-    while (msgBytesInLast--)
-        *lastBlock++ = *msgLast++;
-
-    // separator
-    *lastBlock++ = 0x80;
-
-    while (numZeroBytes--)
-        *lastBlock++ = 0;
-
-    // original length in bits (!), switch endianness
-    bytes *= 8;
-    *lastBlock++ = (uint8_t)(bytes >> 56 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 48 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 40 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 32 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 24 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 16 & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 8  & 0xff);
-    *lastBlock++ = (uint8_t)(bytes >> 0  & 0xff);
-
-    return extraBlocks;
+    const uint8_t* src = msg;
+    while (bytes--)
+    {
+        // TODO: could optimize the first and last few bytes, and then copy
+        // 128 bit blocks with SIMD in between
+        ctx->block[ctx->cur++] = *src++;
+        if (ctx->cur == 64)
+        {
+            processBlock(ctx);
+            ctx->cur = 0;
+        }
+    }
 }
 
-SHA1Digest SHA1_get (const void* msg, uint64_t bytes)
+Sha1Digest Sha1Ctx_getDigest (Sha1Ctx* ctx)
 {
-    SHA1Digest digest;
-    uint32_t h[5] =
+    // append separator
+    ctx->block[ctx->cur++] = 0x80;
+    if (ctx->cur > 56)
     {
-        0x67452301,
-        0xefcdab89,
-        0x98badcfe,
-        0x10325476,
-        0xc3d2e1f0
-    };
-
-    uint64_t totalBlocks = ALIGN(bytes + 9, 64) / 64; // including padding
-    const uint32_t* block = (const uint32_t*)msg;
-    uint64_t b;
-
-    // we could assume that msg is always required to
-    // hold padding, but let's not
-    uint8_t lastBlocks[128];  // either one or two blocks
-    int numLast = padMsg(msg, bytes, lastBlocks);
-
-    for (b = 0; b < totalBlocks-numLast; b++)
-    {
-        processBlock(block, h);
-        block += 16;
+        // no space in block for the 64-bit message length, flush
+        memset(&ctx->block[ctx->cur], 0, 64 - ctx->cur);
+        processBlock(ctx);
+        ctx->cur = 0;
     }
 
-    // process last block
-    for (b = 0; b < numLast; b++)
-        processBlock((const uint32_t*)(lastBlocks + b*64), h);
+    memset(&ctx->block[ctx->cur], 0, 56 - ctx->cur);
+    uint64_t bits = ctx->bytes * 8;
 
-    for (b = 0; b < 5; b++)
-        digest.digest[b] = get32(&h[b]);
-    return digest;
+    // TODO a few instructions could be shaven
+    ctx->block[56] = (uint8_t)(bits >> 56 & 0xff);
+    ctx->block[57] = (uint8_t)(bits >> 48 & 0xff);
+    ctx->block[58] = (uint8_t)(bits >> 40 & 0xff);
+    ctx->block[59] = (uint8_t)(bits >> 32 & 0xff);
+    ctx->block[60] = (uint8_t)(bits >> 24 & 0xff);
+    ctx->block[61] = (uint8_t)(bits >> 16 & 0xff);
+    ctx->block[62] = (uint8_t)(bits >> 8  & 0xff);
+    ctx->block[63] = (uint8_t)(bits >> 0  & 0xff);
+    processBlock(ctx);
+
+    {
+        Sha1Digest ret;
+        int i;
+        for (i = 0; i < 5; i++)
+            ret.digest[i] = get32(&ctx->h[i]);
+        Sha1Ctx_reset(ctx);
+        return ret;
+    }
+}
+
+Sha1Digest Sha1_get (const void* msg, uint64_t bytes)
+{
+    Sha1Ctx ctx;
+    Sha1Ctx_reset(&ctx);
+    Sha1Ctx_write(&ctx, msg, bytes);
+    return Sha1Ctx_getDigest(&ctx);
 }
 
 
-SHA1Digest SHA1_strToDigest (const char* src)
+Sha1Digest Sha1Digest_fromStr (const char* src)
 {
-    SHA1Digest d;
+    Sha1Digest d;
     int i;
     
     assert(src); // also, src must be at least 40 bytes
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < 20 && src[i]; i++)
     {
         // \todo just use atoi or something
         int c0 = tolower(*src++);
@@ -171,7 +186,7 @@ SHA1Digest SHA1_strToDigest (const char* src)
     return d;
 }
 
-void SHA1_digestToStr (const SHA1Digest* digest, char* dst)
+void Sha1Digest_toStr (const Sha1Digest* digest, char* dst)
 {
     int i;
     assert(digest && dst); // dst must be at least 41 bytes (terminator)
